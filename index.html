@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Ambil Foto & Upload Lokasi</title>
+<style>
+  body { font-family: Arial; margin: 12px; max-width: 600px; }
+  video, canvas { width: 100%; border: 1px solid #ccc; }
+  button { padding: 8px 12px; margin: 6px 0; }
+  #status { margin-top: 8px; font-weight: bold; }
+</style>
+</head>
+<body>
+  <h3>Ambil Foto & Upload Lokasi</h3>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+  <div>
+    <button id="start">Mulai Kamera</button>
+    <button id="capture" disabled>Ambil Foto</button>
+    <button id="upload" disabled>Upload</button>
+  </div>
+  <div id="status">Status: Menunggu</div>
+
+<script>
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxPXFe1o2cWkx_f1rCqa3XfjGH3P2OGp0LweRRILMokGrtB1J_7uukJk9Yvg_wMxi5Z4A/exec'; // Ganti dengan URL Web App kamu
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const startBtn = document.getElementById('start');
+const captureBtn = document.getElementById('capture');
+const uploadBtn = document.getElementById('upload');
+const statusDiv = document.getElementById('status');
+
+let lastDataUrl = null;
+let lastLat = '';
+let lastLng = '';
+let lastAddress = '';
+
+startBtn.onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = stream;
+    status('Kamera aktif');
+    captureBtn.disabled = false;
+  } catch (err) {
+    status('Gagal akses kamera: ' + err.message, true);
+  }
+};
+
+captureBtn.onclick = () => {
+  if (!navigator.geolocation) {
+    status('Geolocation tidak didukung', true);
+    return;
+  }
+  status('Mengambil lokasi...');
+  navigator.geolocation.getCurrentPosition((pos) => {
+    lastLat = pos.coords.latitude;
+    lastLng = pos.coords.longitude;
+    lastAddress = `Lat: ${lastLat.toFixed(6)}, Lng: ${lastLng.toFixed(6)}`;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Tambah watermark waktu dan lokasi
+    const ts = new Date().toLocaleString();
+    const rectHeight = Math.round(canvas.height * 0.08);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, canvas.height - rectHeight, canvas.width, rectHeight);
+    ctx.fillStyle = 'white';
+    ctx.font = `${Math.max(14, Math.round(canvas.width / 40))}px sans-serif`;
+    ctx.fillText(ts, 10, canvas.height - rectHeight / 2 + 5);
+    ctx.fillText(lastAddress, 10, canvas.height - rectHeight / 2 + 28);
+
+    lastDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    status('Foto siap diupload.');
+    uploadBtn.disabled = false;
+  }, (err) => {
+    status('Gagal ambil lokasi: ' + err.message, true);
+  }, { enableHighAccuracy: true, timeout: 10000 });
+};
+
+uploadBtn.onclick = async () => {
+  if (!lastDataUrl) {
+    status('Tidak ada foto untuk diupload', true);
+    return;
+  }
+  status('Mengirim data ke server...');
+  try {
+    const params = new URLSearchParams();
+    params.append('image', lastDataUrl);
+    params.append('lat', lastLat);
+    params.append('lng', lastLng);
+    params.append('address', lastAddress);
+    params.append('timestamp', new Date().toISOString());
+    params.append('user', 'user-mobile');
+
+    const response = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    const json = await response.json();
+    if (json.status === 'ok') {
+      status('Upload sukses: ' + json.fileUrl);
+      uploadBtn.disabled = true;
+      captureBtn.disabled = true;
+    } else {
+      status('Upload gagal: ' + (json.message || 'Unknown error'), true);
+    }
+  } catch (err) {
+    status('Request gagal: ' + err.message, true);
+  }
+};
+
+function status(msg, isError = false) {
+  statusDiv.textContent = 'Status: ' + msg;
+  statusDiv.style.color = isError ? 'red' : 'green';
+}
+</script>
+</body>
+</html>
