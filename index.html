@@ -1,0 +1,77 @@
+const SHEET_NAME = 'Sheet1';
+const DRIVE_FOLDER_ID = '1NYWOsAVJe0dSkjZOLlYY5p2X030f-qq9'; // nanti kamu buat folder di Drive dan ambil ID-nya
+const SPREADSHEET_ID = '1nXKCKhrs6LSwvjYJ5xrd22yJ_oJBA3b6ad5pRKaCa5s'; // spreadsheet untuk simpan data
+
+function doGet(e) {
+  if (e.parameter.action === 'getData') {
+    return getData();
+  }
+  return ContentService.createTextOutput('Web App aktif. Ready to receive POST data.')
+    .setMimeType(ContentService.MimeType.TEXT);
+}
+
+function doPost(e) {
+  try {
+    // Ambil data dari form-encoded
+    const imageBase64 = e.parameter.image;
+    const lat = e.parameter.lat;
+    const lng = e.parameter.lng;
+    const address = e.parameter.address || '';
+    const timestamp = e.parameter.timestamp || new Date().toISOString();
+    const user = e.parameter.user || 'anonymous';
+
+    if (!imageBase64) throw new Error('Tidak ada data gambar.');
+
+    // Simpan file foto di Drive
+    const folder = DriveApp.getFolderById('1NYWOsAVJe0dSkjZOLlYY5p2X030f-qq9');
+    const contentType = 'image/jpeg';
+    const bytes = Utilities.base64Decode(imageBase64.replace(/^data:image\/\w+;base64,/, ''));
+    const blob = Utilities.newBlob(bytes, contentType, `photo_${timestamp}.jpg`);
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    // Simpan metadata ke spreadsheet
+    const sheet = SpreadsheetApp.openById('1nXKCKhrs6LSwvjYJ5xrd22yJ_oJBA3b6ad5pRKaCa5s').getSheetByName('Sheet1');
+    sheet.appendRow([timestamp, user, lat, lng, address, file.getUrl()]);
+
+    // Respon sukses
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'ok', fileUrl: file.getUrl() }))
+      .setMimeType(ContentService.MimeType.JSON)
+      .setHeader('Access-Control-Allow-Origin', '*');
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON)
+      .setHeader('Access-Control-Allow-Origin', '*');
+  }
+}
+
+function getData() {
+  try {
+    const sheet = SpreadsheetApp.openById('1nXKCKhrs6LSwvjYJ5xrd22yJ_oJBA3b6ad5pRKaCa5s').getSheetByName('Sheet1');
+    const data = sheet.getDataRange().getValues();
+    const headers = data.shift();
+
+    const result = data.map(row => {
+      return {
+        Timestamp: row[0],
+        User: row[1],
+        Lat: row[2],
+        Lng: row[3],
+        Address: row[4],
+        DriveUrl: row[5]
+      };
+    });
+    return ContentService
+      .createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON)
+      .setHeader('Access-Control-Allow-Origin', '*');
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON)
+      .setHeader('Access-Control-Allow-Origin', '*');
+  }
+}
